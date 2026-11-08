@@ -45,3 +45,16 @@ See [API endpoints](docs/api-endpoints.md), [database design](docs/database-desi
 ## Project status
 
 Planning and API design. Implementation details, setup instructions, and tests will be added as the API is built.
+
+
+## Getting Started
+
+To get started with the WE Sole API:
+
+1. Clone the repository.
+2. Navigate into the project directory.
+3. Review the project documentation in the `docs/` folder.
+4. Follow the API endpoint and database design documentation to understand the project structure.
+
+This documentation helps new contributors understand the project before development begins.
+
