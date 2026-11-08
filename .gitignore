@@ -18,3 +18,4 @@ instance/
 
 # Testing
 .pytest_cache/
+.vscode/
