@@ -6,8 +6,11 @@ This is the planned endpoint contract. The exact response body and authenticatio
 |---|---|---|---|---|---|---|---|---|
 | `/auth/register` | POST | Register a user | 201 Created | Required fields missing or invalid | — | — | — | Public |
 | `/auth/login` | POST | Log in and receive a token/session | 200 OK | Username or password missing | Credentials invalid | — | — | Public |
+| `/auth/admin` | GET | Example admin-only protected resource | 200 OK | — | Missing or invalid authentication | User lacks admin role | — | Admin |
+| `/auth/me` | GET | View the authenticated user's profile | 200 OK | — | Missing, invalid, or expired token | — | User account no longer exists | Logged-in |
+| `/auth/me` | PATCH | Update the authenticated user's editable profile fields | 200 OK | No editable fields or invalid field values | Missing, invalid, or expired token | — | User account no longer exists | Logged-in |
 | `/auth/profile` | GET | View current user's profile | 200 OK | — | Missing or invalid authentication | — | User account no longer exists | Logged-in |
-| `/auth/profile` | PUT | Update current user's profile | 200 OK | Profile fields missing or invalid | Missing or invalid authentication | — | User account no longer exists | Logged-in |
+| `/auth/profile` | PUT | Legacy alias for updating current user's editable profile fields | 200 OK | Profile fields missing or invalid | Missing or invalid authentication | — | User account no longer exists | Logged-in |
 | `/wishlist_items` | GET | List current user's wishlist | 200 OK | — | Missing or invalid authentication | — | — (empty list returns 200) | Logged-in |
 | `/wishlist_items` | POST | Add a sneaker to the wishlist | 201 Created | Required fields missing or invalid | Missing or invalid authentication | — | — | Logged-in |
 | `/wishlist_items/{id}` | GET | View one owned wishlist item | 200 OK | Invalid ID format | Missing or invalid authentication | Access to another user's item is denied | Item does not exist | Logged-in |

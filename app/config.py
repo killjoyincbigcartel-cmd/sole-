@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 
 class Config:
@@ -6,6 +7,7 @@ class Config:
     JWT_SECRET = os.getenv(
         "JWT_SECRET", "dev-secret-change-me-very-long-for-jwt-signing"
     )
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=12)
 
 
 class DevelopmentConfig(Config):

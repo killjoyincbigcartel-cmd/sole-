@@ -1,12 +1,21 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from functools import wraps
 
 import jwt
-from flask import current_app, jsonify, request
+from flask import current_app, g, jsonify, request
 
 from app.auth import auth_bp
 from app.extensions import db
 from app.models import User
+
+
+def _validation_error(message: str, code: str = "validation_error"):
+    return jsonify({"code": code, "message": message}), 400
+
+
+def _conflict_error(message: str, code: str = "conflict"):
+    return jsonify({"code": code, "message": message}), 409
 
 
 def _serialize_user(user):
@@ -29,43 +38,75 @@ def _get_secret():
     )
 
 
-def _get_current_user():
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
+def token_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        scheme, separator, token = auth_header.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not token.strip():
+            return jsonify({"error": "Token missing."}), 401
 
-    token = auth_header.split(" ", 1)[1].strip()
+        try:
+            payload = jwt.decode(
+                token.strip(),
+                _get_secret(),
+                algorithms=["HS256"],
+                options={"require": ["exp", "sub"]},
+            )
+            subject = payload["sub"]
+            if not isinstance(subject, str):
+                raise ValueError("JWT subject must be a string")
+            g.user_id = int(subject)
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token expired."}), 401
+        except (jwt.InvalidTokenError, TypeError, ValueError):
+            return jsonify({"error": "Invalid token."}), 401
 
-    try:
-        payload = jwt.decode(token, _get_secret(), algorithms=["HS256"])
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        return None
+        return view(*args, **kwargs)
 
-    user = db.session.get(User, int(payload.get("sub")))
-    return user if user else None
+    return wrapped
 
 
 @auth_bp.route("/register", methods=["POST"])
 def register():
-    data = request.get_json(silent=True) or {}
+    if not request.is_json:
+        return _validation_error("Request body must be valid JSON.")
+
+    data = request.get_json(silent=True)
+    if data is None:
+        return _validation_error("Request body must be valid JSON.")
 
     required_fields = ["username", "email", "password"]
-    missing = [field for field in required_fields if not data.get(field)]
-    if missing:
-        return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+    for field in required_fields:
+        if field not in data or data.get(field) is None:
+            return _validation_error(f"{field.title()} is required")
 
-    username = str(data["username"]).strip()
-    email = str(data["email"]).strip().lower()
-    password = str(data["password"])
+    username = data["username"]
+    email = data["email"]
+    password = data["password"]
 
-    if len(username) < 3:
-        return jsonify({"error": "Username must be at least 3 characters long."}), 400
+    if not isinstance(username, str) or not username.strip():
+        return _validation_error("Username is required")
+    if not isinstance(email, str) or not email.strip():
+        return _validation_error("Email is required")
+    if not isinstance(password, str) or not password:
+        return _validation_error("Password is required")
 
+    username = username.strip()
+    email = email.strip().lower()
+    password = password
+
+    if len(username) < 3 or len(username) > 80:
+        return _validation_error("Username must be between 3 and 80 characters")
+    if len(email) > 120:
+        return _validation_error("Email must be 120 characters or fewer")
+    if len(password) < 8 or len(password) > 128:
+        return _validation_error("Password must be between 8 and 128 characters")
     if "@" not in email:
-        return jsonify({"error": "A valid email address is required."}), 400
+        return _validation_error("Email must be a valid email address")
 
     if User.query.filter((User.username == username) | (User.email == email)).first():
-        return jsonify({"error": "Username or email already exists."}), 409
+        return _conflict_error("Username already exists")
 
     user = User(
         username=username,
@@ -78,7 +119,14 @@ def register():
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({"message": "User registered successfully.", "user": _serialize_user(user)}), 201
+    return jsonify({
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        }
+    }), 201
 
 
 @auth_bp.route("/login", methods=["POST"])
@@ -98,18 +146,38 @@ def login():
     if not user or not user.check_password(str(password)):
         return jsonify({"error": "Invalid credentials."}), 401
 
+    payload = {
+        "sub": str(user.id),
+        "role": user.role,
+        "exp": datetime.now(timezone.utc)
+        + current_app.config["JWT_ACCESS_TOKEN_EXPIRES"],
+    }
     token = jwt.encode(
-        {"sub": str(user.id), "exp": datetime.now(timezone.utc) + timedelta(hours=12)},
-        _get_secret(),
+        payload,
+        current_app.config["JWT_SECRET"],
         algorithm="HS256",
     )
 
     return jsonify({"token": token, "user": _serialize_user(user)})
 
 
+@auth_bp.route("/admin", methods=["GET"])
+@token_required
+def admin_check():
+    user = db.session.get(User, g.user_id)
+    if user is None:
+        return jsonify({"error": "Authentication required."}), 401
+    if user.role != "admin":
+        return jsonify({"error": "Admin access required."}), 403
+
+    return jsonify({"message": "Admin access granted."}), 200
+
+
 @auth_bp.route("/profile", methods=["GET"])
+@auth_bp.route("/me", methods=["GET"])
+@token_required
 def get_profile():
-    user = _get_current_user()
+    user = db.session.get(User, g.user_id)
     if user is None:
         return jsonify({"error": "Authentication required."}), 401
 
@@ -117,8 +185,10 @@ def get_profile():
 
 
 @auth_bp.route("/profile", methods=["PUT"])
+@auth_bp.route("/me", methods=["PATCH"])
+@token_required
 def update_profile():
-    user = _get_current_user()
+    user = db.session.get(User, g.user_id)
     if user is None:
         return jsonify({"error": "Authentication required."}), 401
 
@@ -126,38 +196,17 @@ def update_profile():
     if not data:
         return jsonify({"error": "At least one profile field is required."}), 400
 
-    allowed_updates = {
-        "first_name": "first_name",
-        "last_name": "last_name",
-        "username": "username",
-        "email": "email",
-    }
+    allowed_updates = {"first_name", "last_name"}
 
     update_data = {}
-    for incoming_key, model_key in allowed_updates.items():
-        if incoming_key not in data:
+    for field in allowed_updates:
+        if field not in data:
             continue
 
-        value = data[incoming_key]
-        if incoming_key in {"username", "email"}:
-            cleaned = str(value).strip()
-            if not cleaned:
-                return jsonify({"error": f"{incoming_key.title()} cannot be empty."}), 400
-            if incoming_key == "email":
-                cleaned = cleaned.lower()
-                if "@" not in cleaned:
-                    return jsonify({"error": "A valid email address is required."}), 400
-                if User.query.filter(User.email == cleaned, User.id != user.id).first():
-                    return jsonify({"error": "Email already exists."}), 409
-            else:
-                if len(cleaned) < 3:
-                    return jsonify({"error": "Username must be at least 3 characters long."}), 400
-                if User.query.filter(User.username == cleaned, User.id != user.id).first():
-                    return jsonify({"error": "Username already exists."}), 409
-            update_data[model_key] = cleaned
-        else:
-            cleaned = str(value).strip()
-            update_data[model_key] = cleaned
+        value = data[field]
+        if not isinstance(value, str):
+            return jsonify({"error": f"{field.title()} must be a string."}), 400
+        update_data[field] = value.strip()
 
     if not update_data:
         return jsonify({"error": "No valid profile fields were provided."}), 400
