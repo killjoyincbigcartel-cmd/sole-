@@ -2,6 +2,7 @@ import unittest
 
 from app import create_app
 from app.extensions import db
+from app.models import User
 
 
 class AuthEndpointsIntegrationTest(unittest.TestCase):
@@ -39,6 +40,12 @@ class AuthEndpointsIntegrationTest(unittest.TestCase):
         self.assertEqual(register_response.get_json()["user"]["username"], "alice")
         self.assertNotIn("password", register_response.get_json()["user"])
 
+        user = User.query.filter_by(username="alice").one()
+        self.assertTrue(user.password_hash.startswith("scrypt:"))
+        self.assertNotEqual(user.password_hash, "secret123")
+        self.assertTrue(user.check_password("secret123"))
+        self.assertFalse(user.check_password("wrong-password"))
+
         login_response = self.client.post(
             "/auth/login",
             json={"username": "alice", "password": "secret123"},
@@ -47,6 +54,12 @@ class AuthEndpointsIntegrationTest(unittest.TestCase):
         self.assertEqual(login_response.status_code, 200)
         token = login_response.get_json()["token"]
         self.assertTrue(token)
+
+        wrong_password_response = self.client.post(
+            "/auth/login",
+            json={"username": "alice", "password": "wrong-password"},
+        )
+        self.assertEqual(wrong_password_response.status_code, 401)
 
         profile_response = self.client.get(
             "/auth/profile",
