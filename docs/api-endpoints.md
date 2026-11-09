@@ -13,13 +13,15 @@ This is the planned endpoint contract. The exact response body and authenticatio
 | `/auth/profile` | PUT | Legacy alias for updating current user's editable profile fields | 200 OK | Profile fields missing or invalid | Missing or invalid authentication | — | User account no longer exists | Logged-in |
 | `/wishlist_items` | GET | List current user's wishlist | 200 OK | — | Missing or invalid authentication | — | — (empty list returns 200) | Logged-in |
 | `/wishlist_items` | POST | Add a sneaker to the wishlist | 201 Created | Required fields missing or invalid | Missing or invalid authentication | — | — | Logged-in |
-| `/wishlist_items/{id}` | GET | View one owned wishlist item | 200 OK | Invalid ID format | Missing or invalid authentication | Access to another user's item is denied | Item does not exist | Logged-in |
+| `/wishlist_items/{id}` | GET | Read one wishlist item by ID | 200 OK | Invalid ID format | Missing or invalid authentication | — | Item does not exist (JSON 404) | Logged-in |
 | `/wishlist_items/{id}` | PUT | Update an owned wishlist item | 200 OK | Invalid ID or update fields | Missing or invalid authentication | Updating another user's item is denied | Item does not exist | Logged-in |
 | `/wishlist_items/{id}` | DELETE | Delete an owned wishlist item | 204 No Content | Invalid ID format | Missing or invalid authentication | Deleting another user's item is denied | Item does not exist | Logged-in |
 
 ## Authorization rule
 
 The authenticated user's ID determines ownership. Do not accept an `owner_id` from the request body as proof of ownership.
+
+The current read-by-ID endpoint checks existence but does not yet enforce item ownership; an authenticated user can receive an existing item belonging to another user. This behavior is recorded for the current lesson and should be addressed in a later authorization change.
 
 ## Status-code notes
 

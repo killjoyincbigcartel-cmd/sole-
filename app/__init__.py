@@ -36,6 +36,12 @@ def create_app(config_name="development"):
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
 
+    # Load the wishlist detail route.
+    from app.wishlist import wishlist_bp
+    from app.wishlist import detail_routes as wishlist_detail_routes
+
+    app.register_blueprint(wishlist_bp)
+
     # Load app health routes.
     from app.health import health_bp
     from app.health import routes as health_routes
