@@ -28,7 +28,7 @@ def create_app(config_name="development"):
     migrate.init_app(app, db)
 
     # Import the single User model so Flask-Migrate can detect it.
-    from app.models import User
+    from app.models import User, WishlistItem
 
     # Load authentication routes.
     from app.auth import auth_bp
