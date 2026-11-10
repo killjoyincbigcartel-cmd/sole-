@@ -1,19 +1,10 @@
 # WE Sole API
 
-WE Sole is a sneaker wishlist API project. It is designed to let users register, log in, and keep track of sneakers they want to buy.
+WE Sole is a sneaker wishlist REST API. Users can register, log in, manage their profile, and keep track of sneakers they want to buy.
 
 ## Project goal
 
-Build a small, secure REST API around one main resource: `wishlist_items`. Each wishlist item belongs to the user who created it, and users should only be able to view or change their own items.
-
-## Planned features
-
-- User registration and login
-- Authentication for protected routes
-- Create, list, view, update, and delete wishlist items
-- Store details such as sneaker name, size, target price, notes, and priority
-- Enforce ownership using the authenticated user's ID
-- Return consistent HTTP status codes for errors and successful requests
+The API is built around users and one main resource: `wishlist_items`. Each wishlist item belongs to the authenticated user who created it, and users should only be able to view or change their own items.
 
 ## Main user story
 
@@ -24,7 +15,7 @@ Build a small, secure REST API around one main resource: `wishlist_items`. Each 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | POST | `/auth/register` | Create an account |
-| POST | `/auth/login` | Log in and receive an authentication token or session |
+| POST | `/auth/login` | Log in and receive an authentication token |
 | GET | `/auth/profile` | View the current user's profile |
 | PUT | `/auth/profile` | Update the current user's profile |
 | GET | `/wishlist_items` | List the current user's wishlist |
@@ -32,29 +23,30 @@ Build a small, secure REST API around one main resource: `wishlist_items`. Each 
 | GET | `/wishlist_items/{id}` | View one wishlist item |
 | PUT | `/wishlist_items/{id}` | Update one wishlist item |
 | DELETE | `/wishlist_items/{id}` | Remove one wishlist item |
+| GET | `/health` | Check that the API is responding |
 
 See [API endpoints](docs/api-endpoints.md), [database design](docs/database-design.md), and [project scope](docs/project-scope.md) for more details.
 
 ## Security notes
 
-- Passwords should be stored as secure hashes, never as plain text.
-- Protected routes should require a valid authentication token or session.
-- The server must get the item's owner ID from the authenticated user, not trust an owner ID supplied in the request body.
-- Requests to another user's item should be denied without exposing private data.
+- Passwords are stored as secure hashes, never as plain text.
+- Protected routes require a valid authentication token.
+- The server gets the item's owner ID from the authenticated user instead of trusting an owner ID supplied in the request body.
+- Requests to another user's item are denied without exposing private data.
+- Keep JWT secrets and database passwords out of source control.
 
-## Project status
+## Requirements
 
-The API is built around the user and wishlist flows described in this repository. The project is now moving from design into runnable local development and test setup.
+- Python 3.12 or newer for local development
+- Docker Desktop with Docker Compose for the container setup
 
-## Setup
+## Run locally
 
-Follow these steps to run the app locally:
-
-1. Clone the repository:
+1. Clone the repository and enter the project folder:
 
    ```bash
-   git clone <your-repo-url>
-   cd sole--main
+   git clone https://github.com/killjoyincbigcartel-cmd/sole-.git
+   cd sole-
    ```
 
 2. Create and activate a virtual environment:
@@ -71,117 +63,169 @@ Follow these steps to run the app locally:
    python -m pip install -r requirements.txt
    ```
 
-4. Copy the example environment file and fill in any local values:
+4. Copy the local environment example and set a development JWT secret:
 
    ```bash
    cp .env.example .env
    ```
 
-5. Start the Flask app:
+   Make sure `.env` has the settings needed for local development. A SQLite development database can use `DATABASE_URL=sqlite:///dev.db`, and Flask uses `FLASK_CONFIG=development`. Do not commit real secrets.
+
+5. Apply the existing database migrations:
 
    ```bash
-   flask run
+   flask --app wsgi db upgrade
    ```
 
-   If your shell does not pick up the Flask app automatically, you can also run:
+6. Start the Flask app:
 
    ```bash
-   export FLASK_APP=wsgi.py
-   export FLASK_ENV=development
-   flask run
+   flask --app wsgi run
    ```
 
-   The app should be available at `http://127.0.0.1:5000` by default.
+   The app should be available at `http://127.0.0.1:5000`.
 
 ## Run with Docker Compose
 
-Docker Compose starts the Flask web app and PostgreSQL together. The web service uses the same `wsgi:app` application factory as local runs.
+Docker Compose starts the Flask API and PostgreSQL database together. The web container runs Gunicorn with `wsgi:app`. The `wsgi.py` entry point calls the same `create_app()` application factory used for local development; there is no separate Docker-only factory or app code path.
 
-1. Copy the Compose environment example and set local values:
+### 1. Configure the Docker environment
 
-   ```bash
-   cp .env.compose.example .env
-   ```
+Copy the Compose example to a separate file so it does not overwrite your local `.env`:
 
-   Replace the placeholder `JWT_SECRET` and `POSTGRES_PASSWORD`. Generate URL-safe values with:
+```bash
+cp .env.compose.example .env.docker
+```
 
-   ```bash
-   python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
-   ```
+Open `.env.docker` and set the values for:
 
-   `.env` is git-ignored; do not commit real secrets.
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+- `JWT_SECRET`
 
-2. Start PostgreSQL, build the image, apply migrations, and start the web app:
+You can generate a URL-safe JWT secret with:
 
-   ```bash
-   docker compose --env-file .env up -d db
-   docker compose --env-file .env build web
-   docker compose --env-file .env run --rm web flask --app wsgi db upgrade
-   docker compose --env-file .env up -d web
-   ```
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
 
-3. Verify both services and the health endpoint:
+Use a strong, unique database password. The example values are for local development only. Keep `.env.docker` private and do not commit it.
 
-   ```bash
-   docker compose --env-file .env ps
-   curl -i http://127.0.0.1:8000/health
-   docker compose --env-file .env logs web
-   ```
+### 2. Build and start PostgreSQL
 
-   The health request should return `200 OK` with `{"status":"ok"}`. Stop the services with `docker compose --env-file .env down`; the named `postgres_data` volume keeps database contents. Use `down -v` only when you intend to delete that data.
+```bash
+docker compose --env-file .env.docker up -d db
+docker compose --env-file .env.docker build web
+```
 
-The Docker image contains the app and dependencies; JWT secrets and database configuration are supplied at runtime through Compose and are not baked into image layers. Containers are replaceable instances, while the named Postgres volume persists data independently. JWT authentication is stateless: requests carry signed tokens that the app verifies with `JWT_SECRET`, so no server-side session store is needed. User and wishlist records still persist in PostgreSQL.
+The database has a health check. Compose waits for PostgreSQL to become healthy before starting the web service.
+
+### 3. Apply database migrations
+
+Run the migrations inside the web image:
+
+```bash
+docker compose --env-file .env.docker run --rm web flask --app wsgi db upgrade
+```
+
+The repository already contains migration files, so a fresh setup needs `db upgrade`; do not run `db init` again.
+
+### 4. Start the API
+
+```bash
+docker compose --env-file .env.docker up -d web
+```
+
+To build and start both services in one command instead, use:
+
+```bash
+docker compose --env-file .env.docker up --build
+```
+
+If you use that foreground command, leave it running in one terminal and run the migration command from another terminal after PostgreSQL is healthy.
+
+### 5. Verify the containers and API
+
+Check service status:
+
+```bash
+docker compose --env-file .env.docker ps
+```
+
+Check the health endpoint:
+
+```bash
+curl -i http://127.0.0.1:8000/health
+```
+
+A successful response is `HTTP/1.1 200 OK` with:
+
+```json
+{"status":"ok"}
+```
+
+View the web service logs:
+
+```bash
+docker compose --env-file .env.docker logs web
+```
+
+Stop the services:
+
+```bash
+docker compose --env-file .env.docker down
+```
+
+The named `postgres_data` volume keeps database contents when containers are stopped or removed. **Only** use `down -v` when you intentionally want to delete the saved PostgreSQL data and start with a fresh database.
+
+### Docker Compose test results
+
+The Compose setup was tested successfully with the commands above:
+
+- Docker built the `sole--main-web` image.
+- PostgreSQL 17 initialized and reported `database system is ready to accept connections`.
+- The PostgreSQL container passed its health check.
+- Gunicorn 23.0.0 started and booted two workers.
+- Flask-Migrate applied all three existing migrations:
+  - `Create WE Sole users table`
+  - `Add role to users`
+  - `create wishlist items`
+- `GET /health` returned `200 OK` and `{"status":"ok"}`.
 
 ## Environment variables
 
-Copy `.env.example` to `.env` before running the app.
+For local development, copy `.env.example` to `.env`. The app uses:
 
-The project currently uses the following environment variables:
+| Variable | Purpose |
+|---|---|
+| `FLASK_CONFIG` | Selects the app configuration, such as `development` or `production`. |
+| `JWT_SECRET` | Secret used to sign and verify JSON Web Tokens. |
+| `DATABASE_URL` | Database connection string. Local development can use `sqlite:///dev.db`; Docker Compose supplies a PostgreSQL URL to the web container. |
 
-```env
-FLASK_APP=wsgi.py
-FLASK_ENV=development
-JWT_SECRET=your-super-secret-key
-DATABASE_URL=sqlite:///dev.db
-```
+For Docker Compose, `.env.docker` supplies `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `JWT_SECRET`. Compose uses those values to configure PostgreSQL and build the web container's `DATABASE_URL`. The database connection uses the `psycopg2` driver provided by the `psycopg2-binary` Python package.
 
-What each one is for:
+Flask 3 uses `FLASK_CONFIG` in this project; `FLASK_ENV` is not used.
 
-- `FLASK_APP`: tells Flask which app entry point to load. In this project that is `wsgi.py`.
-- `FLASK_ENV`: sets the runtime environment. Use `development` locally and switch to another environment when deploying.
-- `JWT_SECRET`: secret key used to sign JSON Web Tokens for authentication.
-- `DATABASE_URL`: database connection string. Local development can use SQLite (`sqlite:///dev.db`), while production may use PostgreSQL or another hosted database.
+## Database migrations
 
-If you are using a real database in another environment, replace the local SQLite URL with your actual connection string.
-
-## Database and migrations
-
-This project uses Flask-Migrate with the Flask CLI, so database setup is handled through `flask db` commands.
-
-When you are ready to initialize migrations for the project, use:
+The project uses Flask-Migrate and Alembic. To apply the committed migrations:
 
 ```bash
-flask db init
-flask db migrate -m "initial migration"
-flask db upgrade
+flask --app wsgi db upgrade
 ```
 
-For ongoing schema work, the general pattern is:
+When you change a model, generate and apply a new migration:
 
 ```bash
-flask db migrate -m "describe your change"
-flask db upgrade
+flask --app wsgi db migrate -m "describe your change"
+flask --app wsgi db upgrade
 ```
 
-This keeps the app tied to the same migration workflow used by the Flask-SQLAlchemy and Flask-Migrate setup already in the project.
+For Docker, run those commands through the Compose web service as shown in the Docker setup above.
 
-## Getting started
+## Project documentation
 
-To get oriented quickly, review the project docs in the `docs/` folder:
-
-- [docs/api-endpoints.md](docs/api-endpoints.md)
-- [docs/database-design.md](docs/database-design.md)
-- [docs/project-scope.md](docs/project-scope.md)
-
-These documents explain the API contract and the planned data model before you start adding new routes or features.
-
+- [API endpoints](docs/api-endpoints.md)
+- [Database design](docs/database-design.md)
+- [Project scope](docs/project-scope.md)
