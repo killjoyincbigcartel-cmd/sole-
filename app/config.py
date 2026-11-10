@@ -24,6 +24,7 @@ class TestingConfig(Config):
 
 
 class ProductionConfig(Config):
+    JWT_SECRET = os.getenv("JWT_SECRET")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
 
 
