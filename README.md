@@ -93,6 +93,45 @@ Follow these steps to run the app locally:
 
    The app should be available at `http://127.0.0.1:5000` by default.
 
+## Run with Docker Compose
+
+Docker Compose starts the Flask web app and PostgreSQL together. The web service uses the same `wsgi:app` application factory as local runs.
+
+1. Copy the Compose environment example and set local values:
+
+   ```bash
+   cp .env.compose.example .env
+   ```
+
+   Replace the placeholder `JWT_SECRET` and `POSTGRES_PASSWORD`. Generate URL-safe values with:
+
+   ```bash
+   python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+   ```
+
+   `.env` is git-ignored; do not commit real secrets.
+
+2. Start PostgreSQL, build the image, apply migrations, and start the web app:
+
+   ```bash
+   docker compose --env-file .env up -d db
+   docker compose --env-file .env build web
+   docker compose --env-file .env run --rm web flask --app wsgi db upgrade
+   docker compose --env-file .env up -d web
+   ```
+
+3. Verify both services and the health endpoint:
+
+   ```bash
+   docker compose --env-file .env ps
+   curl -i http://127.0.0.1:8000/health
+   docker compose --env-file .env logs web
+   ```
+
+   The health request should return `200 OK` with `{"status":"ok"}`. Stop the services with `docker compose --env-file .env down`; the named `postgres_data` volume keeps database contents. Use `down -v` only when you intend to delete that data.
+
+The Docker image contains the app and dependencies; JWT secrets and database configuration are supplied at runtime through Compose and are not baked into image layers. Containers are replaceable instances, while the named Postgres volume persists data independently. JWT authentication is stateless: requests carry signed tokens that the app verifies with `JWT_SECRET`, so no server-side session store is needed. User and wishlist records still persist in PostgreSQL.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` before running the app.
