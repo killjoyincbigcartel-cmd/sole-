@@ -6,7 +6,7 @@ import jwt
 
 from app import create_app
 from app.extensions import db
-from app.models import User
+from app.models import User, WishlistItem
 
 
 class AuthEndpointsIntegrationTest(unittest.TestCase):
@@ -248,6 +248,81 @@ class AuthEndpointsIntegrationTest(unittest.TestCase):
             headers={"Authorization": f"Bearer {forged_role_token}"},
         )
         self.assertEqual(forged_role_response.status_code, 403)
+
+    def test_wishlist_create_and_list_are_scoped_to_authenticated_user(self):
+        account_data = [
+            {"username": "wishlist-one", "email": "wishlist-one@example.com"},
+            {"username": "wishlist-two", "email": "wishlist-two@example.com"},
+        ]
+        tokens = []
+        users = []
+        for account in account_data:
+            registration = self.client.post(
+                "/auth/register",
+                json={**account, "password": "wishlist-pass-123"},
+            )
+            self.assertEqual(registration.status_code, 201)
+            login = self.client.post(
+                "/auth/login",
+                json={"username": account["username"], "password": "wishlist-pass-123"},
+            )
+            self.assertEqual(login.status_code, 200)
+            tokens.append(login.get_json()["token"])
+            users.append(User.query.filter_by(username=account["username"]).one())
+
+        item_one_response = self.client.post(
+            "/wishlist_items",
+            headers={"Authorization": f"Bearer {tokens[0]}"},
+            json={"sneaker_name": "Air Max One", "brand": "Nike"},
+        )
+        item_two_response = self.client.post(
+            "/wishlist_items",
+            headers={"Authorization": f"Bearer {tokens[1]}"},
+            json={"sneaker_name": "Runner Two", "brand": "Adidas"},
+        )
+        self.assertEqual(item_one_response.status_code, 201)
+        self.assertEqual(item_two_response.status_code, 201)
+        self.assertEqual(item_one_response.get_json()["user_id"], users[0].id)
+        self.assertEqual(item_two_response.get_json()["user_id"], users[1].id)
+
+        for owner_field in ("user_id", "owner_id"):
+            spoofed_owner_response = self.client.post(
+                "/wishlist_items",
+                headers={"Authorization": f"Bearer {tokens[0]}"},
+                json={"sneaker_name": "Spoofed Pair", owner_field: users[1].id},
+            )
+            self.assertEqual(spoofed_owner_response.status_code, 400)
+
+        list_one_response = self.client.get(
+            "/wishlist_items",
+            headers={"Authorization": f"Bearer {tokens[0]}"},
+        )
+        list_two_response = self.client.get(
+            "/wishlist_items",
+            headers={"Authorization": f"Bearer {tokens[1]}"},
+        )
+        self.assertEqual(
+            [item["sneaker_name"] for item in list_one_response.get_json()["items"]],
+            ["Air Max One"],
+        )
+        self.assertEqual(
+            [item["sneaker_name"] for item in list_two_response.get_json()["items"]],
+            ["Runner Two"],
+        )
+        self.assertEqual(
+            WishlistItem.query.filter_by(user_id=users[0].id).count(),
+            1,
+        )
+        self.assertEqual(
+            WishlistItem.query.filter_by(user_id=users[1].id).count(),
+            1,
+        )
+
+        self.assertEqual(self.client.get("/wishlist_items").status_code, 401)
+        self.assertEqual(
+            self.client.post("/wishlist_items", json={"sneaker_name": "No Token"}).status_code,
+            401,
+        )
 
 
 if __name__ == "__main__":

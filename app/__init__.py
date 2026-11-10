@@ -2,7 +2,9 @@ import os
 
 from flask import Flask
 from dotenv import load_dotenv
+from werkzeug.exceptions import HTTPException
 
+from app.api_errors import error_response
 from app.extensions import db, migrate
 
 
@@ -16,6 +18,17 @@ def create_app(config_name="development"):
 
     app = Flask(__name__)
     app.config.from_object(config_by_name[config_name])
+
+    @app.errorhandler(HTTPException)
+    def handle_http_error(error):
+        status_code = error.code or 500
+        message = "Internal server error." if status_code >= 500 else error.description
+        return error_response(message, status_code)
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(error):
+        app.logger.exception("Unhandled application exception")
+        return error_response("Internal server error.", 500)
 
     if config_name == "production":
         if not app.config.get("SQLALCHEMY_DATABASE_URI"):
@@ -36,7 +49,7 @@ def create_app(config_name="development"):
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
 
-    # Load the wishlist detail route.
+    # Load the wishlist blueprint and read-by-ID route.
     from app.wishlist import wishlist_bp
     from app.wishlist import detail_routes as wishlist_detail_routes
     from app.wishlist import routes as wishlist_routes
