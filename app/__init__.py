@@ -39,6 +39,7 @@ def create_app(config_name="development"):
     # Load the wishlist detail route.
     from app.wishlist import wishlist_bp
     from app.wishlist import detail_routes as wishlist_detail_routes
+    from app.wishlist import routes as wishlist_routes
 
     app.register_blueprint(wishlist_bp)
 
