@@ -2,8 +2,9 @@
 .venv/
 venv/
 
-# Environment variables
+# Environment variables and secrets
 .env
+.env.docker
 
 # Python cache
 __pycache__/
